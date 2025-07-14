@@ -104,7 +104,7 @@
         
         <div id="controls">
             <button onclick="togglePause()">Pause/Resume</button>
-            <button onclick="resetSimulation()">Reset</button>
+            <button onclick="resetSimulation()">New Random System</button>
             <button onclick="toggleTrails()">Toggle Trails</button>
             <br>
             <label>
@@ -125,8 +125,10 @@
             • Space: Pause/Resume<br>
             <br>
             <strong>Physics:</strong><br>
-            Newtonian gravity with RK4 integration<br>
-            This is a numerical approximation showing chaotic three-body dynamics
+            newtonian gravity with RK4 integration<br>
+            randomized initial conditions create random chaotic systems<br>
+            collision detection prevents body overlap
+            🥱🥱🥱🥱 physics is boring but physics and coding is tolerable
         </div>
     </div>
 
@@ -135,39 +137,37 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
     <script>
         /**
-         * THREE-BODY GRAVITATIONAL SIMULATION
+         * three-body gravitational simulation
          * 
-         * This simulation demonstrates the classical three-body problem using:
-         * - Newtonian gravitational physics (F = G*m1*m2/r²)
-         * - RK4 (Runge-Kutta 4th order) numerical integration
-         * - Real-time 3D visualization with Three.js
+         * classic three-body problem with newtonian gravity
+         * using rk4 integration because euler is garbage for orbital mechanics
          * 
-         * PHYSICS NOTES:
-         * - The three-body problem has no general analytical solution
-         * - We use numerical integration to approximate the motion
-         * - RK4 provides good accuracy and stability for orbital mechanics
-         * - Gravitational constant G is scaled for visualization purposes
+         * physics notes:
+         * - no analytical solution exists (thanks poincaré)
+         * - chaotic system, sensitive to initial conditions
+         * - rk4 gives us 4th order accuracy which is good enough
+         * - g is scaled up for visualization purposes
          * 
-         * NUMERICAL INTEGRATION:
-         * - RK4 evaluates the derivative (acceleration) at 4 points per timestep
-         * - This provides 4th-order accuracy, much better than simple Euler integration
-         * - Essential for stable long-term orbital simulations
+         * numerical integration:
+         * - rk4 samples acceleration at 4 points per timestep
+         * - much more stable than simple euler integration
+         * - essential for long-term orbital stability
          */
 
-        // ===== PHYSICS CONSTANTS AND VARIABLES =====
-        const G = 50; // Gravitational constant (scaled for visualization)
-        const SOFTENING = 0.1; // Softening parameter to prevent singularities
-        let dt = 0.008; // Time step for integration
-        let speedMultiplier = 1.0;
-        let simulationTime = 0;
-        let isPaused = false;
-        let showTrails = true;
-        let trailLength = 200;
+        // ===== physics constants and variables =====
+        const G = 50; // gravitational constant (scaled for viz)
+        const SOFTENING = 0.1; // prevents singularities when bodies get close
+        let dt = 0.008; // timestep for integration
+        let speedMultiplier = 1.0; // simulation speed multiplier
+        let simulationTime = 0; // elapsed simulation time
+        let isPaused = false; // pause state
+        let showTrails = true; // whether to show orbit trails
+        let trailLength = 200; // max trail length
 
-        // ===== BODY CLASS =====
+        // ===== body class =====
         /**
-         * Body class represents a gravitating mass in 3D space
-         * Contains position, velocity, mass, and rendering properties
+         * represents a gravitating mass in 3d space
+         * contains position, velocity, mass, and rendering properties
          */
         class Body {
             constructor(x, y, z, vx, vy, vz, mass, color, radius) {
@@ -200,8 +200,8 @@
             }
             
             /**
-             * Update trail for orbit visualization
-             * Maintains a rolling buffer of recent positions
+             * update trail for orbit visualization
+             * maintains a rolling buffer of recent positions
              */
             updateTrail() {
                 if (!showTrails) return;
@@ -233,20 +233,80 @@
             }
         }
 
-        // ===== GRAVITATIONAL PHYSICS =====
+        // ===== gravitational physics =====
         /**
-         * Calculate gravitational force between two bodies
-         * F = G * m1 * m2 / (r² + softening²)
-         * Softening prevents numerical instabilities when bodies get very close
+         * calculate gravitational force between two bodies with collision detection
+         * f = g * m1 * m2 / (r² + softening²)
+         * includes collision handling to prevent body overlap
          */
         function calculateGravitationalForce(body1, body2) {
             const dx = body2.position.x - body1.position.x;
             const dy = body2.position.y - body1.position.y;
             const dz = body2.position.z - body1.position.z;
             
-            const distanceSquared = dx * dx + dy * dy + dz * dz + SOFTENING * SOFTENING;
-            const distance = Math.sqrt(distanceSquared);
+            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const minDistance = body1.radius + body2.radius + 0.5; // Minimum safe distance
             
+            // collision detection and handling
+            if (distance < minDistance) {
+                // calculate collision normal
+                const nx = dx / distance;
+                const ny = dy / distance;
+                const nz = dz / distance;
+                
+                // separate bodies to prevent overlap
+                const overlap = minDistance - distance;
+                const totalMass = body1.mass + body2.mass;
+                const separation1 = overlap * (body2.mass / totalMass);
+                const separation2 = overlap * (body1.mass / totalMass);
+                
+                body1.position.x -= nx * separation1;
+                body1.position.y -= ny * separation1;
+                body1.position.z -= nz * separation1;
+                
+                body2.position.x += nx * separation2;
+                body2.position.y += ny * separation2;
+                body2.position.z += nz * separation2;
+                
+                // elastic collision - exchange velocity components along collision normal
+                const relVelX = body2.velocity.x - body1.velocity.x;
+                const relVelY = body2.velocity.y - body1.velocity.y;
+                const relVelZ = body2.velocity.z - body1.velocity.z;
+                
+                const relVelNormal = relVelX * nx + relVelY * ny + relVelZ * nz;
+                
+                if (relVelNormal > 0) return { x: 0, y: 0, z: 0 }; // bodies separating
+                
+                // coefficient of restitution (bounciness)
+                const restitution = 0.8;
+                const impulse = -(1 + restitution) * relVelNormal / (1/body1.mass + 1/body2.mass);
+                
+                body1.velocity.x -= impulse * nx / body1.mass;
+                body1.velocity.y -= impulse * ny / body1.mass;
+                body1.velocity.z -= impulse * nz / body1.mass;
+                
+                body2.velocity.x += impulse * nx / body2.mass;
+                body2.velocity.y += impulse * ny / body2.mass;
+                body2.velocity.z += impulse * nz / body2.mass;
+                
+                // Recalculate distance after separation
+                const newDx = body2.position.x - body1.position.x;
+                const newDy = body2.position.y - body1.position.y;
+                const newDz = body2.position.z - body1.position.z;
+                const newDistance = Math.sqrt(newDx * newDx + newDy * newDy + newDz * newDz);
+                
+                const distanceSquared = newDistance * newDistance + SOFTENING * SOFTENING;
+                const force = G * body1.mass * body2.mass / distanceSquared;
+                
+                return {
+                    x: force * newDx / newDistance,
+                    y: force * newDy / newDistance,
+                    z: force * newDz / newDistance
+                };
+            }
+            
+            // normal gravitational force calculation
+            const distanceSquared = distance * distance + SOFTENING * SOFTENING;
             const force = G * body1.mass * body2.mass / distanceSquared;
             
             return {
@@ -257,8 +317,8 @@
         }
 
         /**
-         * Calculate net acceleration on a body from all other bodies
-         * a = F_net / m
+         * calculate net acceleration on a body from all other bodies
+         * a = f_net / m
          */
         function calculateAcceleration(bodyIndex, bodies) {
             const body = bodies[bodyIndex];
@@ -276,24 +336,24 @@
             return { x: ax, y: ay, z: az };
         }
 
-        // ===== RK4 NUMERICAL INTEGRATION =====
+        // ===== rk4 numerical integration =====
         /**
-         * Runge-Kutta 4th order integration
-         * This is the heart of the simulation's accuracy
+         * runge-kutta 4th order integration
+         * this is the heart of the simulation's accuracy
          * 
-         * RK4 evaluates the derivative (acceleration) at 4 points:
+         * rk4 evaluates the derivative (acceleration) at 4 points:
          * k1: at the beginning of the interval
          * k2: at the midpoint using k1
          * k3: at the midpoint using k2  
          * k4: at the end using k3
          * 
-         * Final result: (k1 + 2*k2 + 2*k3 + k4) / 6
+         * final result: (k1 + 2*k2 + 2*k3 + k4) / 6
          */
         function rk4Step(bodies, dt) {
             const n = bodies.length;
             const k1 = [], k2 = [], k3 = [], k4 = [];
             
-            // Store initial state
+            // store initial state
             const initialStates = bodies.map(body => ({
                 position: body.position.clone(),
                 velocity: body.velocity.clone()
@@ -350,7 +410,7 @@
                 };
             }
             
-            // Final RK4 update: weighted average of all k values
+            // final rk4 update: weighted average of all k values
             for (let i = 0; i < n; i++) {
                 const avgVelocity = k1[i].velocity.clone()
                     .add(k2[i].velocity.clone().multiplyScalar(2))
@@ -369,7 +429,7 @@
             }
         }
 
-        // ===== THREE.JS SETUP =====
+        // ===== three.js setup =====
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -379,7 +439,7 @@
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.getElementById('container').appendChild(renderer.domElement);
 
-        // ===== LIGHTING SETUP =====
+        // ===== lighting setup =====
         const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
         scene.add(ambientLight);
 
@@ -390,7 +450,7 @@
         directionalLight.shadow.mapSize.height = 2048;
         scene.add(directionalLight);
 
-        // Add starfield background
+        // add starfield background
         const starGeometry = new THREE.BufferGeometry();
         const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.1 });
         const starVertices = [];
@@ -404,8 +464,8 @@
         const stars = new THREE.Points(starGeometry, starMaterial);
         scene.add(stars);
 
-        // ===== CAMERA CONTROLS =====
-        // Simple orbit controls implementation
+        // ===== camera controls =====
+        // simple orbit controls implementation
         let mouseDown = false;
         let mouseButton = 0;
         let mouseX = 0;
@@ -464,29 +524,76 @@
 
         renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 
-        // ===== INITIALIZE BODIES =====
+        // ===== initialize bodies =====
         /**
-         * Create three bodies in a figure-8 configuration
-         * This is one of the few known periodic solutions to the three-body problem
-         * Bodies are arranged to create interesting, chaotic dynamics
+         * create three bodies with randomized initial conditions
+         * each reset creates a new chaotic system with different dynamics
+         * bodies are placed to avoid initial overlap and create interesting motion
          */
         function createBodies() {
-            return [
-                new Body(-5, 0, 0, 0, 2, 0.5, 10, 0xff6b6b, 0.8),    // Red body
-                new Body(5, 0, 0, 0, -2, -0.5, 10, 0x4ecdc4, 0.8),   // Cyan body  
-                new Body(0, 8, 0, -1.5, 0, 0, 10, 0xffe66d, 0.8)     // Yellow body
-            ];
+            const bodies = [];
+            const colors = [0xff6b6b, 0x4ecdc4, 0xffe66d]; // Red, Cyan, Yellow
+            const minDistance = 3; // Minimum distance between bodies
+            
+            for (let i = 0; i < 3; i++) {
+                let position, attempts = 0;
+                
+                // generate random position, ensuring no overlap with existing bodies
+                do {
+                    const angle = Math.random() * Math.PI * 2;
+                    const radius = 4 + Math.random() * 8; // random radius between 4 and 12
+                    const height = (Math.random() - 0.5) * 6; // random height between -3 and 3
+                    
+                    position = {
+                        x: Math.cos(angle) * radius,
+                        y: height,
+                        z: Math.sin(angle) * radius
+                    };
+                    
+                    attempts++;
+                    if (attempts > 100) break; // safety valve
+                    
+                } while (bodies.some(body => {
+                    const dx = position.x - body.position.x;
+                    const dy = position.y - body.position.y;
+                    const dz = position.z - body.position.z;
+                    return Math.sqrt(dx*dx + dy*dy + dz*dz) < minDistance;
+                }));
+                
+                // random velocity with some orbital characteristics
+                const velocityMag = 0.5 + Math.random() * 2; // random speed
+                const velocityAngle = Math.random() * Math.PI * 2;
+                const velocity = {
+                    x: Math.cos(velocityAngle) * velocityMag * (Math.random() - 0.5),
+                    y: (Math.random() - 0.5) * velocityMag,
+                    z: Math.sin(velocityAngle) * velocityMag * (Math.random() - 0.5)
+                };
+                
+                // random mass between 8 and 15
+                const mass = 8 + Math.random() * 7;
+                
+                // radius proportional to mass
+                const radius = 0.5 + Math.sqrt(mass) * 0.15;
+                
+                bodies.push(new Body(
+                    position.x, position.y, position.z,
+                    velocity.x, velocity.y, velocity.z,
+                    mass, colors[i], radius
+                ));
+            }
+            
+            return bodies;
         }
 
         let bodies = createBodies();
 
-        // Add bodies to scene
+        // add bodies to scene
         bodies.forEach(body => {
             scene.add(body.mesh);
             scene.add(body.trailLine);
         });
 
-        // ===== ANIMATION LOOP =====
+        // ===== animation loop =====
         let lastTime = 0;
         let frameCount = 0;
         let fpsLastTime = 0;
@@ -497,7 +604,7 @@
             const deltaTime = currentTime - lastTime;
             lastTime = currentTime;
             
-            // FPS calculation
+            // fps calculation
             frameCount++;
             if (currentTime - fpsLastTime >= 1000) {
                 document.getElementById('fps').textContent = frameCount;
@@ -506,10 +613,10 @@
             }
             
             if (!isPaused) {
-                // Physics update with adaptive timestep for stability
+                // physics update with adaptive timestep for stability
                 const effectiveDt = dt * speedMultiplier;
                 
-                // Multiple smaller steps for better stability
+                // multiple smaller steps for better stability
                 const substeps = Math.max(1, Math.floor(speedMultiplier * 2));
                 for (let i = 0; i < substeps; i++) {
                     rk4Step(bodies, effectiveDt / substeps);
@@ -517,21 +624,21 @@
                 
                 simulationTime += effectiveDt;
                 
-                // Update visual representation
+                // update visual representation
                 bodies.forEach(body => {
                     body.mesh.position.copy(body.position);
                     body.updateTrail();
                 });
             }
             
-            // Update UI
+            // update ui
             document.getElementById('time').textContent = simulationTime.toFixed(2);
             
-            // Render
+            // render
             renderer.render(scene, camera);
         }
 
-        // ===== CONTROL FUNCTIONS =====
+        // ===== control functions =====
         function togglePause() {
             isPaused = !isPaused;
         }
@@ -569,7 +676,7 @@
             document.getElementById('trailValue').textContent = trailLength;
         }
 
-        // ===== KEYBOARD CONTROLS =====
+        // ===== keyboard controls =====
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space') {
                 e.preventDefault();
@@ -577,14 +684,14 @@
             }
         });
 
-        // ===== WINDOW RESIZE =====
+        // ===== window resize =====
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // ===== START SIMULATION =====
+        // ===== start simulation =====
         updateCameraPosition();
         animate(0);
     </script>
